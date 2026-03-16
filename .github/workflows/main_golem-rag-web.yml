@@ -72,3 +72,5 @@ jobs:
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_E84D301708E449EEB6290F33D30C18D5 }}
           package: release.zip
           type: zip
+          clean: true
+          restart: true
