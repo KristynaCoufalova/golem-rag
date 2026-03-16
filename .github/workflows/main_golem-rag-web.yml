@@ -66,17 +66,22 @@ jobs:
       - name: Extract publish profile credentials
         id: creds
         run: |
-          PUBLISH_PROFILE="${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_E84D301708E449EEB6290F33D30C18D5 }}"
-          USERNAME=$(echo "$PUBLISH_PROFILE" | grep -oP 'userName="\K[^"]+' | head -1)
-          PASSWORD=$(echo "$PUBLISH_PROFILE" | grep -oP 'userPWD="\K[^"]+' | head -1)
-          echo "::add-mask::$USERNAME"
-          echo "::add-mask::$PASSWORD"
-          echo "username=$USERNAME" >> "$GITHUB_OUTPUT"
-          echo "password=$PASSWORD" >> "$GITHUB_OUTPUT"
+          python3 -c "
+          import xml.etree.ElementTree as ET, os
+          tree = ET.fromstring('''${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_E84D301708E449EEB6290F33D30C18D5 }}''')
+          profile = tree.find('.//publishProfile[@publishMethod=\"MSDeploy\"]')
+          user = profile.get('userName')
+          pwd = profile.get('userPWD')
+          print(f'::add-mask::{user}')
+          print(f'::add-mask::{pwd}')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f'username={user}\n')
+              f.write(f'password={pwd}\n')
+          "
 
       - name: 'Deploy to Azure Web App via ZipDeploy'
         run: |
-          curl -X POST \
+          curl -s -w "\nHTTP_CODE:%{http_code}\n" -X POST \
             --retry 3 \
             --retry-delay 10 \
             -u "${{ steps.creds.outputs.username }}:${{ steps.creds.outputs.password }}" \
