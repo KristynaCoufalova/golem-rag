@@ -91,4 +91,4 @@ jobs:
             -u "${{ steps.creds.outputs.username }}:${{ steps.creds.outputs.password }}" \
             -H "Content-Type: application/zip" \
             --data-binary @release.zip \
-            "https://golem-rag-web.scm.azurewebsites.net/api/zipdeploy?isAsync=true"
+            "https://golem-rag-web-avbadbf5caa9c5en.scm.westeurope-01.azurewebsites.net/api/zipdeploy?isAsync=true"
