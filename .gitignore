@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.env
+.env.*
+
+# Vector DB & caches
+*.sqlite3
+*.bin
+*.pickle
+.bm25_cache/
+vectordb_code/
+vectordb_docs/
+
+# Models & large files
+*.pt
+*.ckpt
+*.zip
+*.tar
+*.gz
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Logs
+*.log
+
+# Test / secrets
+test_token.txt

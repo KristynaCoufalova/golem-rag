@@ -1,0 +1,830 @@
+<!DOCTYPE html>
+<html class="light" lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Golem AI - Professional Assistant</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+    tailwind.config = {
+        darkMode: "class",
+        theme: {
+            extend: {
+                colors: {
+                    "primary": "#1152d4",
+                    "background-light": "#f6f6f8",
+                    "background-dark": "#101622",
+                },
+                fontFamily: {
+                    "display": ["Inter", "sans-serif"]
+                },
+                borderRadius: { "DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px" },
+            },
+        },
+    }
+</script>
+<style>
+    body { font-family: 'Inter', sans-serif; }
+    .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+    .custom-scrollbar:hover::-webkit-scrollbar-thumb { background: #cbd5e1; }
+    
+    .prose pre {
+        background-color: #f1f5f9;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        overflow-x: auto;
+        margin-top: 0.5rem;
+        margin-bottom: 0.5rem;
+    }
+    .dark .prose pre {
+        background-color: #1e293b;
+    }
+    .prose code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-size: 0.875em;
+    }
+    .prose :not(pre) > code {
+        background-color: #e2e8f0;
+        padding: 0.1rem 0.3rem;
+        border-radius: 0.25rem;
+        color: #1152d4;
+    }
+    .dark .prose :not(pre) > code {
+        background-color: #1e293b;
+        color: #60a5fa;
+    }
+    .prose-invert :not(pre) > code {
+        background-color: rgba(255,255,255,0.2);
+        color: #fff;
+    }
+    
+    /* Loading spinner for button */
+    .button-loading {
+        color: transparent !important;
+        position: relative;
+    }
+    .button-loading::after {
+        content: "";
+        position: absolute;
+        width: 16px;
+        height: 16px;
+        top: 50%;
+        left: 50%;
+        margin-top: -8px;
+        margin-left: -8px;
+        border: 2px solid rgba(255,255,255,0.3);
+        border-top-color: #fff;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    
+    /* Auto-resizing textarea to prevent scrollbar until max-height */
+    textarea {
+        resize: none;
+        overflow: hidden;
+    }
+</style>
+</head>
+<body class="bg-background-light dark:bg-background-dark text-slate-900 dark:text-slate-100 font-display">
+<div class="relative flex h-screen w-full flex-col overflow-hidden">
+<!-- Header -->
+<header class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-6 py-3 z-10">
+    <div class="flex items-center gap-3">
+        <button id="sidebar-toggle-btn" class="p-2 -ml-2 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" title="Toggle Sidebar">
+            <span class="material-symbols-outlined text-xl">menu</span>
+        </button>
+        <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-white shadow-lg shadow-primary/20">
+            <span class="material-symbols-outlined text-2xl">database</span>
+        </div>
+        <div>
+            <h2 class="text-lg font-bold leading-tight tracking-tight text-slate-900 dark:text-white">Golem</h2>
+            <p class="text-[11px] font-medium uppercase tracking-widest text-primary">Professional Intelligence</p>
+        </div>
+    </div>
+    <div class="flex items-center gap-6">
+        <div class="hidden md:flex items-center gap-2">
+            <span id="status-dot" class="h-2 w-2 rounded-full bg-slate-400"></span>
+            <span id="status-text" class="text-xs font-medium text-slate-500">Checking health...</span>
+        </div>
+        <div class="h-6 w-px bg-slate-200 dark:bg-slate-800"></div>
+        <div class="flex items-center gap-4">
+            <button id="auth-btn" class="text-sm font-semibold text-slate-600 dark:text-slate-400 hover:text-primary transition-colors">Login</button>
+            <div class="h-9 w-9 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 text-slate-500">
+                <span class="material-symbols-outlined text-xl">person</span>
+            </div>
+        </div>
+    </div>
+</header>
+<div class="flex flex-1 overflow-hidden">
+<!-- Sidebar -->
+<aside id="sidebar" class="hidden lg:flex w-72 flex-col border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 transition-all duration-300">
+    <button id="new-chat-btn" class="mb-6 flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-bold text-white shadow-lg shadow-primary/25 hover:bg-primary/90 transition-all active:scale-95">
+        <span class="material-symbols-outlined text-xl">add</span>
+        New Conversation
+    </button>
+    <div class="flex-1 overflow-y-auto custom-scrollbar space-y-1">
+        <div class="px-2 pb-2 flex justify-between items-center">
+            <p class="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">Recent History</p>
+        </div>
+        <div id="chat-list" class="space-y-1">
+            <!-- Chat items will be rendered here -->
+        </div>
+    </div>
+    <div class="mt-auto border-t border-slate-100 dark:border-slate-800 pt-4 space-y-1">
+        <button id="clear-chat-btn" class="w-full flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-red-500 transition-colors">
+            <span class="material-symbols-outlined text-lg">delete_sweep</span>
+            Clear Current Chat
+        </button>
+    </div>
+</aside>
+<!-- Main Content -->
+<main class="flex flex-1 flex-col bg-background-light dark:bg-background-dark relative">
+<!-- Chat Viewport -->
+<div id="chat-panel" class="flex-1 overflow-y-auto custom-scrollbar p-6">
+    <div id="chat-messages" class="mx-auto max-w-3xl space-y-8 pb-10">
+        <!-- Messages will be rendered here -->
+    </div>
+</div>
+<!-- Input Area -->
+<div class="p-6 bg-gradient-to-t from-background-light dark:from-background-dark via-background-light/80 dark:via-background-dark/80 to-transparent shrink-0">
+    <div class="mx-auto max-w-3xl">
+        <div class="relative group">
+            <div class="absolute -inset-0.5 bg-gradient-to-r from-primary/20 to-blue-500/20 rounded-2xl blur opacity-30 group-focus-within:opacity-100 transition duration-500"></div>
+            <div class="relative flex flex-col rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xl shadow-slate-200/50 dark:shadow-none overflow-hidden">
+                <textarea id="question" class="w-full resize-none border-none bg-transparent px-5 py-4 text-sm md:text-base focus:ring-0 placeholder:text-slate-400 dark:text-white outline-none" placeholder="What should Golem explain?" rows="1" style="min-height: 56px; max-height: 200px;"></textarea>
+                <div class="flex items-center justify-between border-t border-slate-50 dark:border-slate-800 px-3 py-2 bg-slate-50/50 dark:bg-slate-800/50">
+                    <div class="flex items-center gap-1">
+                        <!-- Extra actions can go here -->
+                        <span class="text-[10px] text-slate-400 px-2">Press Enter to submit, Shift+Enter for new line</span>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <div id="model-pill" class="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+                            <span class="h-2 w-2 rounded-full bg-slate-300" id="mode-dot"></span>
+                            <span id="mode-text">Standard</span>
+                        </div>
+                        <button id="submit-btn" class="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-white shadow-md shadow-primary/20 hover:scale-105 active:scale-95 transition-all">
+                            <span class="material-symbols-outlined">send</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <p class="mt-3 text-center text-[11px] font-medium text-slate-400">
+            Golem can make mistakes. Consider checking important information.
+        </p>
+    </div>
+</div>
+</main>
+</div>
+</div>
+<!-- Source logic script below -->
+<script>
+    const questionInput = document.getElementById("question");
+    const submitBtn = document.getElementById("submit-btn");
+    const clearChatBtn = document.getElementById("clear-chat-btn");
+    const authBtn = document.getElementById("auth-btn");
+    const statusText = document.getElementById("status-text");
+    const statusDot = document.getElementById("status-dot");
+    const chatPanel = document.getElementById("chat-panel");
+    const chatMessagesEl = document.getElementById("chat-messages");
+    const newChatBtn = document.getElementById("new-chat-btn");
+    const chatList = document.getElementById("chat-list");
+    const modeText = document.getElementById("mode-text");
+    const modeDot = document.getElementById("mode-dot");
+    
+    let backendMode = "unknown";
+    let isThinking = false;
+    let sourcesHtmlMap = {}; // mapping index -> sources HTML
+    
+    // Authentication management
+    const TOKEN_STORAGE_KEY = 'histruct_id_token';
+    const TOKEN_TIMESTAMP_KEY = 'histruct_token_timestamp';
+    const TOKEN_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours
+    
+    function getToken() {
+      const token = localStorage.getItem(TOKEN_STORAGE_KEY);
+      const timestamp = localStorage.getItem(TOKEN_TIMESTAMP_KEY);
+      if (token && timestamp) {
+        const age = Date.now() - parseInt(timestamp);
+        if (age > TOKEN_EXPIRY_MS) {
+          localStorage.removeItem(TOKEN_STORAGE_KEY);
+          localStorage.removeItem(TOKEN_TIMESTAMP_KEY);
+          updateAuthUI();
+          return null;
+        }
+      }
+      return token;
+    }
+    
+    function isAuthenticated() {
+      return getToken() !== null;
+    }
+    
+    function updateAuthUI() {
+      if (isAuthenticated()) {
+        authBtn.textContent = 'Logout';
+        authBtn.onclick = () => {
+          if (confirm('Are you sure you want to logout?')) {
+            window.location.href = '/auth/logout';
+          }
+        };
+      } else {
+        authBtn.textContent = 'Login';
+        authBtn.onclick = () => {
+          window.location.href = '/auth/login';
+        };
+      }
+    }
+    
+    updateAuthUI();
+
+    (function extractTokenFromHash() {
+      const hash = window.location.hash.substring(1);
+      if (hash) {
+        const params = new URLSearchParams(hash);
+        const token = params.get('id_token');
+        if (token) {
+          localStorage.setItem(TOKEN_STORAGE_KEY, token);
+          localStorage.setItem(TOKEN_TIMESTAMP_KEY, Date.now().toString());
+          history.replaceState(null, '', window.location.pathname + window.location.search);
+          updateAuthUI();
+        }
+      }
+    })();
+    
+    // Multi-chat management
+    const CHATS_STORAGE_KEY = "femcad_chats";
+    const CURRENT_CHAT_KEY = "femcad_current_chat_id";
+    
+    let chats = {};
+    let currentChatId = null;
+    let sessionId = null;
+    let chatMessages = [];
+    
+    function loadChats() {
+      try {
+        const stored = localStorage.getItem(CHATS_STORAGE_KEY);
+        if (stored) {
+          chats = JSON.parse(stored);
+        }
+      } catch (e) {
+        console.error("Failed to load chats:", e);
+        chats = {};
+      }
+
+      let updated = false;
+      Object.values(chats).forEach((chat) => {
+        const messages = chat.messages || [];
+        if (!chat.title || chat.title === "New Chat") {
+            const firstUserMessage = messages.find((m) => m.role === "user");
+            if (firstUserMessage) {
+                let text = firstUserMessage.content.trim();
+                chat.title = text.length > 30 ? text.substring(0, 30) + '...' : text;
+                updated = true;
+            }
+        }
+      });
+      if (updated) {
+        saveChats();
+      }
+      
+      currentChatId = localStorage.getItem(CURRENT_CHAT_KEY) || Object.keys(chats)[0] || null;
+      renderChatList();
+      if (currentChatId && chats[currentChatId]) {
+        loadChat(currentChatId);
+      } else {
+          renderChat(); // renders empty state
+      }
+    }
+    
+    function generateChatId() {
+      return "chat_" + Date.now() + "_" + Math.random().toString(36).substr(2, 9);
+    }
+    
+    function saveChats() {
+      try {
+        localStorage.setItem(CHATS_STORAGE_KEY, JSON.stringify(chats));
+        if (currentChatId) {
+          localStorage.setItem(CURRENT_CHAT_KEY, currentChatId);
+        }
+      } catch (e) {}
+    }
+    
+    function createNewChat() {
+      const chatId = generateChatId();
+      chats[chatId] = {
+        id: chatId,
+        title: "New Chat",
+        messages: [],
+        sessionId: null,
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      };
+      currentChatId = chatId;
+      saveChats();
+      renderChatList();
+      loadChat(chatId);
+      questionInput.focus();
+    }
+    
+    function loadChat(chatId) {
+      if (!chats[chatId]) return;
+      
+      currentChatId = chatId;
+      const chat = chats[chatId];
+      chatMessages = chat.messages || [];
+      sessionId = chat.sessionId || null;
+      sourcesHtmlMap = chat.sourcesHtmlMap || {};
+      
+      saveChats();
+      renderChatList();
+      renderChat();
+      
+      questionInput.value = "";
+      questionInput.style.height = "auto";
+    }
+    
+    function deleteChat(chatId, event) {
+      event.stopPropagation();
+      if (confirm("Delete this chat?")) {
+        delete chats[chatId];
+        if (currentChatId === chatId) {
+          const remainingIds = Object.keys(chats);
+          currentChatId = remainingIds.length > 0 ? remainingIds[0] : null;
+          if (currentChatId) {
+            loadChat(currentChatId);
+          } else {
+            chatMessages = [];
+            currentChatId = null;
+            renderChatList();
+            renderChat();
+          }
+        } else {
+            saveChats();
+            renderChatList();
+        }
+      }
+    }
+    
+    function renderChatList() {
+      chatList.innerHTML = "";
+      const sortedChats = Object.values(chats).sort((a, b) => b.updatedAt - a.updatedAt);
+      
+      if (sortedChats.length === 0) {
+        return;
+      }
+      
+      sortedChats.forEach(chat => {
+        const isActive = chat.id === currentChatId;
+        const item = document.createElement("a");
+        item.href = "#";
+        item.className = isActive 
+            ? "group flex items-center justify-between gap-3 rounded-lg bg-primary/5 px-3 py-2.5 text-sm font-medium text-primary cursor-pointer relative"
+            : "group flex items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer relative";
+        item.onclick = (e) => { e.preventDefault(); loadChat(chat.id); };
+        
+        const leftContent = document.createElement("div");
+        leftContent.className = "flex items-center gap-3 overflow-hidden";
+        leftContent.innerHTML = `
+            <span class="material-symbols-outlined text-lg ${isActive ? '' : 'text-slate-400'}">chat_bubble</span>
+            <span class="truncate block w-40 text-left">${chat.title}</span>
+        `;
+        
+        const deleteBtn = document.createElement("button");
+        deleteBtn.className = "opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-500 transition-colors px-1";
+        deleteBtn.innerHTML = '<span class="material-symbols-outlined text-sm">delete</span>';
+        deleteBtn.onclick = (e) => { e.preventDefault(); deleteChat(chat.id, e); };
+        
+        item.appendChild(leftContent);
+        item.appendChild(deleteBtn);
+        chatList.appendChild(item);
+      });
+    }
+    
+    function updateCurrentChat() {
+      if (!currentChatId) {
+        const chatId = generateChatId();
+        chats[chatId] = {
+            id: chatId,
+            title: "New Chat",
+            messages: [],
+            sessionId: null,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            sourcesHtmlMap: {}
+        };
+        currentChatId = chatId;
+      }
+      
+      chats[currentChatId].messages = chatMessages;
+      chats[currentChatId].sessionId = sessionId;
+      chats[currentChatId].sourcesHtmlMap = sourcesHtmlMap;
+      chats[currentChatId].updatedAt = Date.now();
+      
+      if (chats[currentChatId].title === "New Chat" && chatMessages.length > 0) {
+          const firstUserMessage = chatMessages.find((m) => m.role === "user");
+          if (firstUserMessage) {
+              let text = firstUserMessage.content.trim();
+              chats[currentChatId].title = text.length > 30 ? text.substring(0, 30) + '...' : text;
+          }
+      }
+      
+      saveChats();
+      renderChatList();
+    }
+    
+    questionInput.addEventListener("input", function() {
+      this.style.height = "auto";
+      this.style.height = Math.min(this.scrollHeight, 200) + "px";
+    });
+
+    function setStatus(message, tone = "info") {
+      statusText.textContent = message;
+      if (tone === "ready") {
+          statusDot.className = "h-2 w-2 rounded-full bg-green-500";
+      } else if (tone === "warning") {
+          statusDot.className = "h-2 w-2 rounded-full bg-yellow-500";
+      } else if (tone === "error") {
+          statusDot.className = "h-2 w-2 rounded-full bg-red-500";
+      } else {
+          statusDot.className = "h-2 w-2 rounded-full bg-slate-400";
+      }
+    }
+
+    function formatTime(date) {
+      return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    }
+    
+    function escapeHtml(text) {
+        const div = document.createElement("div");
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    window.copyCodeBlock = function(btn) {
+        const pre = btn.nextElementSibling;
+        const code = pre.querySelector('code');
+        if (code) {
+            // Revert escaped HTML by reading textContent
+            const textToCopy = code.textContent || code.innerText;
+            navigator.clipboard.writeText(textToCopy).then(() => {
+                const icon = btn.querySelector('span');
+                const originalIcon = icon.textContent;
+                icon.textContent = 'check';
+                btn.classList.add('text-green-500');
+                btn.classList.add('dark:text-green-400');
+                btn.classList.remove('text-slate-500');
+                setTimeout(() => {
+                    icon.textContent = originalIcon;
+                    btn.classList.remove('text-green-500');
+                    btn.classList.remove('dark:text-green-400');
+                    btn.classList.add('text-slate-500');
+                }, 2000);
+            }).catch(err => {
+                console.error("Failed to copy:", err);
+            });
+        }
+    };
+
+    function formatAnswerWithCode(text) {
+      if (!text) return '';
+      const newlineChar = String.fromCharCode(10);
+      let normalized = text.replace(/\\\\n/g, newlineChar)
+                           .replace(/\\\\r\\\\n/g, newlineChar)
+                           .replace(/\\\\r/g, newlineChar);
+                           
+      let formatted = normalized;
+      const codeBlockPlaceholders = [];
+      let placeholderIndex = 0;
+      
+      const backtick = String.fromCharCode(96);
+      const codeBlockStart = backtick + backtick + backtick;
+      
+      let searchIndex = 0;
+      while (true) {
+        const startIdx = formatted.indexOf(codeBlockStart, searchIndex);
+        if (startIdx === -1) break;
+        const endIdx = formatted.indexOf(codeBlockStart, startIdx + 3);
+        if (endIdx === -1) break;
+        
+        const match = formatted.substring(startIdx, endIdx + 3);
+        const matchContent = match.slice(3, -3);
+        const firstNewline = matchContent.indexOf(newlineChar);
+        const code = firstNewline > 0 ? matchContent.slice(firstNewline + 1) : matchContent;
+        const escapedCode = escapeHtml(code.trim());
+        const placeholder = "__CODE_BLOCK_" + placeholderIndex + "__";
+        const copyBtnHtml = `<div class="relative group my-4">
+            <button onclick="copyCodeBlock(this)" class="absolute top-2 right-2 p-1.5 rounded-md bg-slate-200 dark:bg-slate-700 text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center" title="Copy code">
+                <span class="material-symbols-outlined text-sm">content_copy</span>
+            </button>
+            <pre class="!my-0"><code class="code-block">${escapedCode}</code></pre>
+        </div>`;
+        codeBlockPlaceholders.push(copyBtnHtml);
+        
+        formatted = formatted.substring(0, startIdx) + placeholder + formatted.substring(endIdx + 3);
+        placeholderIndex++;
+        searchIndex = startIdx + placeholder.length;
+      }
+      
+      const lines = formatted.split(newlineChar);
+      const result = [];
+      
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (line.trim().includes('__CODE_BLOCK_')) {
+          const match = line.trim().match(/__CODE_BLOCK_(\d+)__/);
+          if (match) {
+            result.push(codeBlockPlaceholders[parseInt(match[1])]);
+          }
+          continue;
+        }
+        
+        let processedLine = escapeHtml(line);
+        const parts = processedLine.split('`');
+        if (parts.length > 1) {
+          for (let j = 1; j < parts.length; j += 2) {
+            if (parts[j]) {
+              parts[j] = '<code>' + parts[j] + '</code>';
+            }
+          }
+          processedLine = parts.join('');
+        }
+        result.push(processedLine);
+      }
+      return result.join('<br>');
+    }
+
+    function renderChat() {
+      chatMessagesEl.innerHTML = "";
+      
+      if (chatMessages.length === 0) {
+        chatMessagesEl.innerHTML = `
+        <div class="flex items-start gap-4">
+            <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary text-white">
+                <span class="material-symbols-outlined text-lg">database</span>
+            </div>
+            <div class="flex flex-col gap-1.5 max-w-[85%]">
+                <div class="rounded-2xl rounded-tl-none bg-white dark:bg-slate-900 p-4 shadow-sm border border-slate-100 dark:border-slate-800">
+                    <p class="text-sm leading-relaxed text-slate-800 dark:text-slate-200">
+                        Ahoj! Jsem <span class="font-semibold text-primary">Golem</span> – AI asistent pro FemCAD. Pomohu vám vytvářet modely, psát skripty a rychle se zorientovat v jazyce i dokumentaci FemCADu. S čím vám mohu pomoci?
+                    </p>
+                </div>
+                <span class="text-[10px] font-bold uppercase tracking-widest text-slate-400 px-1">Golem AI</span>
+            </div>
+        </div>
+        `;
+        return;
+      }
+
+      chatMessages.forEach((msg, index) => {
+        const isUser = msg.role === "user";
+        const timeStr = formatTime(new Date(msg.timestamp || Date.now()));
+        const name = isUser ? "You" : "Golem AI";
+        
+        const bubble = document.createElement("div");
+        bubble.className = isUser ? "flex flex-row-reverse items-start gap-4" : "flex items-start gap-4";
+        
+        const avatar = document.createElement("div");
+        if (isUser) {
+            avatar.className = "flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden";
+            avatar.innerHTML = '<span class="material-symbols-outlined text-slate-500">person</span>';
+        } else {
+            avatar.className = "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary text-white shadow-lg shadow-primary/20";
+            avatar.innerHTML = '<span class="material-symbols-outlined text-lg">database</span>';
+        }
+        
+        const contentWrapper = document.createElement("div");
+        contentWrapper.className = isUser ? "flex flex-col items-end gap-1.5 max-w-[85%]" : "flex flex-col gap-1.5 max-w-[85%]";
+        
+        const messageBox = document.createElement("div");
+        if (isUser) {
+            messageBox.className = "rounded-2xl rounded-tr-none bg-primary p-4 shadow-md shadow-primary/10";
+            messageBox.innerHTML = `<div class="text-sm leading-relaxed text-white prose prose-invert break-words">${formatAnswerWithCode(msg.content)}</div>`;
+        } else {
+            messageBox.className = "rounded-2xl rounded-tl-none bg-white dark:bg-slate-900 p-4 shadow-sm border border-slate-100 dark:border-slate-800";
+            messageBox.innerHTML = `<div class="text-sm leading-relaxed text-slate-800 dark:text-slate-200 prose dark:prose-invert break-words">${formatAnswerWithCode(msg.content)}</div>`;
+            
+            // Append sources if they exist for this message
+            if (sourcesHtmlMap[index]) {
+                const sourcesDiv = document.createElement("div");
+                sourcesDiv.className = "mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2";
+                sourcesDiv.innerHTML = `<p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Sources</p>${sourcesHtmlMap[index]}`;
+                messageBox.appendChild(sourcesDiv);
+            }
+        }
+        
+        const meta = document.createElement("span");
+        meta.className = "text-[10px] font-bold uppercase tracking-widest text-slate-400 px-1";
+        meta.textContent = `${name} • ${timeStr}`;
+        
+        contentWrapper.appendChild(messageBox);
+        contentWrapper.appendChild(meta);
+        
+        bubble.appendChild(avatar);
+        bubble.appendChild(contentWrapper);
+        
+        chatMessagesEl.appendChild(bubble);
+      });
+
+      if (isThinking) {
+          const thinkingBubble = document.createElement("div");
+          thinkingBubble.className = "flex items-start gap-4";
+          thinkingBubble.innerHTML = `
+            <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary text-white shadow-lg shadow-primary/20">
+                <span class="material-symbols-outlined text-lg">database</span>
+            </div>
+            <div class="flex flex-col gap-1.5 w-full max-w-[85%]">
+                <div class="rounded-2xl rounded-tl-none bg-white dark:bg-slate-900 p-4 shadow-sm border border-slate-100 dark:border-slate-800 border-l-4 border-l-primary">
+                    <div class="flex items-center gap-3 mb-3">
+                        <div class="flex space-x-1">
+                            <div class="h-1.5 w-1.5 animate-bounce rounded-full bg-primary/40" style="animation-delay: 0.1s"></div>
+                            <div class="h-1.5 w-1.5 animate-bounce rounded-full bg-primary/70" style="animation-delay: 0.2s"></div>
+                            <div class="h-1.5 w-1.5 animate-bounce rounded-full bg-primary" style="animation-delay: 0.3s"></div>
+                        </div>
+                        <span class="text-xs font-semibold text-slate-500 italic">Golem is processing...</span>
+                    </div>
+                    <div class="space-y-3 opacity-60">
+                        <div class="h-3 w-full rounded bg-slate-100 dark:bg-slate-800"></div>
+                        <div class="h-3 w-5/6 rounded bg-slate-100 dark:bg-slate-800"></div>
+                        <div class="h-3 w-4/6 rounded bg-slate-100 dark:bg-slate-800"></div>
+                    </div>
+                </div>
+            </div>
+          `;
+          chatMessagesEl.appendChild(thinkingBubble);
+      }
+
+      setTimeout(() => {
+        chatPanel.scrollTop = chatPanel.scrollHeight;
+      }, 100);
+    }
+
+    async function checkHealth() {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 120000);
+        const res = await fetch("/api/health", { signal: controller.signal, cache: 'no-cache' });
+        clearTimeout(timeoutId);
+        
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        
+        const data = await res.json();
+        backendMode = data.mode || "unknown";
+        if (!data.ready) {
+          setStatus(data.error || "Initializing...", "warning");
+        } else if (data.warning) {
+          setStatus(data.warning, "warning");
+        } else {
+          setStatus("Ready", "ready");
+          if (backendMode === "fallback") {
+              modeText.textContent = "Fallback";
+              modeDot.className = "h-2 w-2 rounded-full bg-yellow-500";
+          } else {
+              modeText.textContent = "Enhanced";
+              modeDot.className = "h-2 w-2 rounded-full bg-green-500";
+          }
+        }
+      } catch (err) {
+        setStatus("Unavailable", "error");
+      }
+    }
+
+    checkHealth();
+    setInterval(checkHealth, 30000);
+
+    async function submitQuestion() {
+      const question = questionInput.value.trim();
+      if (!question) {
+        questionInput.focus();
+        return;
+      }
+
+      if (!currentChatId) {
+        createNewChat();
+      }
+      
+      chatMessages.push({ role: "user", content: question, timestamp: Date.now() });
+      updateCurrentChat();
+      
+      isThinking = true;
+      renderChat();
+
+      submitBtn.disabled = true;
+      submitBtn.classList.add("button-loading");
+      submitBtn.innerHTML = '';
+      questionInput.value = "";
+      questionInput.style.height = "auto";
+
+      try {
+        const headers = { "Content-Type": "application/json" };
+        const token = getToken();
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+        
+        const response = await fetch("/api/query", {
+          method: "POST",
+          headers: headers,
+          body: JSON.stringify({ question: question, session_id: sessionId }),
+        });
+
+        if (!response.ok) {
+          if (response.status === 401) {
+            localStorage.removeItem(TOKEN_STORAGE_KEY);
+            localStorage.removeItem(TOKEN_TIMESTAMP_KEY);
+            updateAuthUI();
+            if (token) throw new Error("Authentication required.");
+          }
+          const error = await response.json().catch(() => ({}));
+          throw new Error(error.detail || "Request failed.");
+        }
+
+        const data = await response.json();
+        if (data.session_id) sessionId = data.session_id;
+
+        chatMessages.push({ role: "assistant", content: data.answer, timestamp: Date.now() });
+        const assistantMsgIndex = chatMessages.length - 1;
+        
+        if (data.sources && data.sources.length > 0) {
+            let sourcesHtml = '';
+            data.sources.forEach((source, idx) => {
+                const pathStr = source.path ? `<code class="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-[10px] text-primary break-all">${escapeHtml(source.path)}</code>` : "";
+                sourcesHtml += `
+                    <div class="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-2 border border-slate-100 dark:border-slate-700">
+                        <div class="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">${idx + 1}. ${escapeHtml(source.title)}</div>
+                        ${pathStr}
+                    </div>
+                `;
+            });
+            sourcesHtmlMap[assistantMsgIndex] = sourcesHtml;
+        }
+
+        if (data.mode) {
+            backendMode = data.mode;
+            if (backendMode === "fallback") {
+              modeText.textContent = "Fallback";
+              modeDot.className = "h-2 w-2 rounded-full bg-yellow-500";
+            } else {
+              modeText.textContent = "Enhanced";
+              modeDot.className = "h-2 w-2 rounded-full bg-green-500";
+            }
+        }
+        
+      } catch (error) {
+        chatMessages.push({ role: "assistant", content: `Error: ${error.message}`, timestamp: Date.now() });
+      } finally {
+        isThinking = false;
+        updateCurrentChat();
+        renderChat();
+        
+        submitBtn.disabled = false;
+        submitBtn.classList.remove("button-loading");
+        submitBtn.innerHTML = '<span class="material-symbols-outlined">send</span>';
+        questionInput.focus();
+      }
+    }
+
+    submitBtn.addEventListener("click", submitQuestion);
+    clearChatBtn.addEventListener("click", () => {
+        if(currentChatId && confirm("Clear all messages in this chat?")) {
+            chatMessages = [];
+            sourcesHtmlMap = {};
+            updateCurrentChat();
+            renderChat();
+        }
+    });
+    newChatBtn.addEventListener("click", createNewChat);
+    
+    // Sidebar toggle logic
+    const sidebarToggleBtn = document.getElementById("sidebar-toggle-btn");
+    const sidebar = document.getElementById("sidebar");
+    
+    if (sidebarToggleBtn && sidebar) {
+        sidebarToggleBtn.addEventListener("click", () => {
+            const isHidden = window.getComputedStyle(sidebar).display === "none";
+            if (isHidden) {
+                sidebar.style.display = "flex";
+                // On mobile, the default class is 'hidden' which applies display:none.
+                // We need to override it if we want to show it on mobile, or just rely on inline style.
+                sidebar.classList.remove("hidden");
+            } else {
+                sidebar.style.display = "none";
+            }
+        });
+    }
+
+    questionInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        submitQuestion();
+      }
+    });
+
+    loadChats();
+</script>
+</body>
+</html>

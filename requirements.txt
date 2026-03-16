@@ -1,0 +1,44 @@
+# Golem RAG - Standalone requirements
+# Python 3.11+
+
+# LangChain
+langchain>=0.3.0
+langchain-core>=0.3.0
+langchain-community>=0.3.0
+langchain-chroma>=0.1.0
+langchain-huggingface>=0.0.1
+langchain-ollama>=0.1.0
+langchain-openai>=0.2.0
+rank-bm25>=0.2.2
+
+# Vector DB
+chromadb>=0.4.22
+langchain-postgres>=0.0.1
+psycopg2-binary>=2.9.0
+
+# Embeddings & ML
+fastembed>=0.7.0
+sentence-transformers>=2.3.0
+transformers>=4.36.0
+torch>=2.0.0
+
+# Server & API
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-dotenv>=1.0.0
+httpx>=0.25.0
+requests>=2.31.0
+tiktoken>=0.5.0
+
+# Azure (chat persistence, optional)
+azure-data-tables>=12.5.0
+azure-storage-blob>=12.19.0
+azure-identity>=1.17.0
+
+# Auth (optional)
+jose>=1.0.0
+python-jose[cryptography]>=3.3.0
+
+# Dev
+pytest>=7.4.0
+black>=23.0.0
