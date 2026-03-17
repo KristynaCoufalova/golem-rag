@@ -56,6 +56,8 @@ uvicorn rag.web_app:app --reload --host 0.0.0.0 --port 8000
 
 The app will start even if `data/` or vector DBs are missing (fallback mode with placeholder content).
 
+**FemCAD / HiStruct sign-in not working?** The app must listen on `0.0.0.0` (all interfaces) so OIDC callbacks from HiStruct can reach it. If the Azure startup command is `uvicorn ...` without `--host 0.0.0.0`, the app may bind only to `127.0.0.1` and sign-in will fail. Use **Startup Command** = `python run_web.py` (or `startup.sh`); see `run_web.py` and `startup.sh`.
+
 ## Layout
 
 - `rag/` – RAG package (retriever, chain, vectorstores, chunkers, web app, CLI)
