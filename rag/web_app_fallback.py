@@ -5,10 +5,13 @@ Provides basic retrieval functionality when the enhanced RAG chain
 is unavailable (e.g., missing dependencies, configuration issues).
 """
 
+import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -47,7 +50,10 @@ class SimpleFallbackEngine:
         self.k_docs = max(0, k_docs)
         self.snippets = self._load_docs(docs_dir)
         if not self.snippets:
-            raise RuntimeError(f"No documentation snippets found in {docs_dir}")
+            logger.warning(
+                "No documentation snippets found in %s; fallback will serve basics only.",
+                docs_dir,
+            )
 
     def run(self, question: str, k_docs: Optional[int] = None) -> tuple[str, List[SimpleDocument]]:
         """
@@ -66,9 +72,17 @@ class SimpleFallbackEngine:
         return answer, docs
 
     def _load_basics(self, basics_path: Path) -> SimpleDocument:
-        """Load the FemCAD basics document."""
+        """Load the FemCAD basics document. Uses placeholder if file is missing (e.g. on Azure without data)."""
         if not basics_path.exists():
-            raise FileNotFoundError(f"FemCAD basics not found: {basics_path}")
+            logger.warning("FemCAD basics not found at %s; using placeholder.", basics_path)
+            return SimpleDocument(
+                page_content="FemCAD fundamentals data is not available in this environment.",
+                metadata={
+                    "source": "placeholder",
+                    "type": "always_included",
+                    "path": "",
+                },
+            )
         text = basics_path.read_text(encoding="utf-8")
         return SimpleDocument(
             page_content=text,
@@ -80,9 +94,10 @@ class SimpleFallbackEngine:
         )
 
     def _load_docs(self, docs_dir: Path) -> List[dict]:
-        """Load and chunk documentation files."""
+        """Load and chunk documentation files. Returns empty list if dir missing (e.g. on Azure without data)."""
         if not docs_dir.exists():
-            raise FileNotFoundError(f"Documentation directory missing: {docs_dir}")
+            logger.warning("Documentation directory missing: %s", docs_dir)
+            return []
 
         snippets: List[dict] = []
         for path in sorted(docs_dir.rglob("*.md")):

@@ -1229,7 +1229,7 @@ def _require_chat_store() -> AzureChatStorage:
 
 
 @app.get("/api/conversations", response_model=List[ConversationSummary])
-async def list_conversations(user: Dict[str, str] = Depends(get_current_user)):
+async def list_conversations(user: Dict[str, str] = Depends(_get_user_optional)):
     store = _require_chat_store()
     user_id = user.get("sub") if user else None
     if not user_id:
@@ -1254,7 +1254,7 @@ async def list_messages(
     conversation_id: str,
     full: bool = Query(False, description="If true, include full message bodies"),
     limit: Optional[int] = Query(None, ge=1, le=500, description="Max messages to return"),
-    user: Dict[str, str] = Depends(get_current_user),
+    user: Dict[str, str] = Depends(_get_user_optional),
 ):
     store = _require_chat_store()
     user_id = user.get("sub") if user else None
@@ -1283,7 +1283,7 @@ async def list_messages(
 @app.delete("/api/conversations/{conversation_id}")
 async def delete_conversation(
     conversation_id: str,
-    user: Dict[str, str] = Depends(get_current_user),
+    user: Dict[str, str] = Depends(_get_user_optional),
 ) -> dict:
     store = _require_chat_store()
     user_id = user.get("sub") if user else None
@@ -1362,12 +1362,14 @@ format_docs_fn = _format_docs_local
 
 if __name__ == "__main__":
     import uvicorn
-    
+
+    # Azure App Service and most PaaS set PORT; default 8000 for local dev
+    port = int(os.environ.get("PORT", "8000"))
     logger.info("Starting FemCAD Assistant Web UI...")
     uvicorn.run(
         app,
         host="0.0.0.0",
-        port=8000,
+        port=port,
         reload=True,
         log_level="info"
     )

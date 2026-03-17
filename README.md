@@ -43,6 +43,19 @@ python -m rag.rag -q "how do I create a beam?"
 uvicorn rag.web_app:app --reload --host 0.0.0.0 --port 8000
 ```
 
+**Azure (e.g. golem.histruct.com):** You don’t choose a port — Azure sets `PORT` and the app uses it automatically.
+
+1. **Startup command** (Azure App Service → Configuration → General settings):
+   ```bash
+   python run_web.py
+   ```
+2. **Custom domain:** In Azure, add `golem.histruct.com` under your Web App → Custom domains and configure DNS as instructed.
+3. **Environment variables** (App Service → Configuration → Application settings) so login works at that URL:
+   - `AUTH_OIDC_CLIENT_URL` = `https://golem.histruct.com`
+   - (Optional) `AUTH_OIDC_REDIRECT_PATH` = `/callback` if your OIDC provider expects `https://golem.histruct.com/callback`
+
+The app will start even if `data/` or vector DBs are missing (fallback mode with placeholder content).
+
 ## Layout
 
 - `rag/` – RAG package (retriever, chain, vectorstores, chunkers, web app, CLI)
