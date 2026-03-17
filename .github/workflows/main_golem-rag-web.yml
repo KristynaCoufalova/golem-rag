@@ -63,32 +63,11 @@ jobs:
       - name: Zip artifact for deployment
         run: zip release.zip ./* -r
 
-      - name: Extract publish profile credentials
-        id: creds
-        env:
-          PUBLISH_PROFILE: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_E84D301708E449EEB6290F33D30C18D5 }}
-        run: |
-          echo "$PUBLISH_PROFILE" > /tmp/profile.xml
-          python3 << 'PYEOF'
-          import xml.etree.ElementTree as ET, os
-          tree = ET.parse('/tmp/profile.xml')
-          profile = tree.find('.//publishProfile[@publishMethod="MSDeploy"]')
-          user = profile.get('userName')
-          pwd = profile.get('userPWD')
-          print(f'::add-mask::{user}')
-          print(f'::add-mask::{pwd}')
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-              f.write(f'username={user}\n')
-              f.write(f'password={pwd}\n')
-          PYEOF
-          rm -f /tmp/profile.xml
-
-      - name: 'Deploy to Azure Web App via ZipDeploy'
-        run: |
-          curl -s -w "\nHTTP_CODE:%{http_code}\n" -X POST \
-            --retry 3 \
-            --retry-delay 10 \
-            -u "${{ steps.creds.outputs.username }}:${{ steps.creds.outputs.password }}" \
-            -H "Content-Type: application/zip" \
-            --data-binary @release.zip \
-            "https://golem-rag-web-avbadbf5caa9c5en.scm.westeurope-01.azurewebsites.net/api/zipdeploy?isAsync=true"
+      - name: 'Deploy to Azure Web App'
+        id: deploy-to-webapp
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: 'golem-rag-web'
+          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_E84D301708E449EEB6290F33D30C18D5 }}
+          package: release.zip
+          type: zip
