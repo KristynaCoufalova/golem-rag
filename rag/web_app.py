@@ -982,57 +982,95 @@ async def oidc_callback(
             </div>
             <script>
                 // Extract token from URL fragment (fragment mode) or query params (query mode)
+                function showError(msg) {
+                    var el = document.getElementById('error');
+                    if (el) { el.style.display = 'block'; el.innerHTML = msg; }
+                }
+                function redirectToApp() {
+                    window.location.replace('/');
+                }
                 function getTokenFromUrl() {
-                    const hash = window.location.hash.substring(1);
-                    const query = window.location.search.substring(1);
-                    
-                    // Try fragment first (fragment mode)
-                    if (hash) {
-                        const params = new URLSearchParams(hash);
-                        const token = params.get('id_token');
-                        const error = params.get('error');
+                    try {
+                        const hash = window.location.hash.substring(1);
+                        const query = window.location.search.substring(1);
                         
-                        if (error) {
-                            document.getElementById('error').style.display = 'block';
-                            document.getElementById('error').innerHTML = '<strong>Error:</strong> ' + error;
-                            return;
+                        // Try fragment first (fragment mode)
+                        if (hash) {
+                            let token = null, error = null;
+                            try {
+                                const params = new URLSearchParams(hash);
+                                token = params.get('id_token');
+                                error = params.get('error');
+                            } catch (parseErr) {
+                                token = null; error = null;
+                            }
+                            if (!token && hash) {
+                                var m = hash.match(/id_token=([^&]+)/);
+                                if (m) token = m[1]; // keep token as-is (base64url)
+                                var e = hash.match(/error=([^&]+)/);
+                                if (e) error = decodeURIComponent(e[1].replace(/\+/g, ' '));
+                            }
+                            
+                            if (error) {
+                                showError('<strong>Error:</strong> ' + error + '<br><a href="/">Return to app</a>');
+                                return;
+                            }
+                            
+                            if (token) {
+                                try {
+                                    localStorage.setItem('histruct_id_token', token);
+                                    localStorage.setItem('histruct_token_timestamp', Date.now().toString());
+                                } catch (e) {
+                                    showError('Could not save token: ' + e.message + '<br><a href="/">Continue to app</a>');
+                                    return;
+                                }
+                                redirectToApp();
+                                return;
+                            }
                         }
                         
-                        if (token) {
-                            localStorage.setItem('histruct_id_token', token);
-                            localStorage.setItem('histruct_token_timestamp', Date.now().toString());
-                            window.location.href = '/';
-                            return;
+                        // Try query params (query mode)
+                        if (query) {
+                            const params = new URLSearchParams(query);
+                            const token = params.get('id_token');
+                            const error = params.get('error');
+                            
+                            if (error) {
+                                showError('<strong>Error:</strong> ' + error + '<br><a href="/">Return to app</a>');
+                                return;
+                            }
+                            
+                            if (token) {
+                                try {
+                                    localStorage.setItem('histruct_id_token', token);
+                                    localStorage.setItem('histruct_token_timestamp', Date.now().toString());
+                                } catch (e) {
+                                    showError('Could not save token: ' + e.message + '<br><a href="/">Continue to app</a>');
+                                    return;
+                                }
+                                redirectToApp();
+                                return;
+                            }
                         }
+                        
+                        // No token found
+                        showError('<strong>No token received</strong><br>Check the URL in your browser\'s address bar.<br><a href="/">Return to app</a>');
+                    } catch (e) {
+                        showError('Unexpected error: ' + e.message + '<br><a href="/">Continue to app</a>');
                     }
-                    
-                    // Try query params (query mode)
-                    if (query) {
-                        const params = new URLSearchParams(query);
-                        const token = params.get('id_token');
-                        const error = params.get('error');
-                        
-                        if (error) {
-                            document.getElementById('error').style.display = 'block';
-                            document.getElementById('error').innerHTML = '<strong>Error:</strong> ' + error + '<br><a href="/">Return to app</a>';
-                            return;
-                        }
-                        
-                        if (token) {
-                            localStorage.setItem('histruct_id_token', token);
-                            localStorage.setItem('histruct_token_timestamp', Date.now().toString());
-                            window.location.href = '/';
-                            return;
-                        }
-                    }
-                    
-                    // No token found
-                    document.getElementById('error').style.display = 'block';
-                    document.getElementById('error').innerHTML = '<strong>No token received</strong><br>Check the URL in your browser\'s address bar.<br><a href="/">Return to app</a>';
                 }
                 
-                // Run on page load
                 getTokenFromUrl();
+                // If redirect did not happen within 3s, show a manual link so user is never stuck
+                setTimeout(function() {
+                    if (window.location.pathname.indexOf('callback') !== -1) {
+                        var el = document.getElementById('error');
+                        if (el && el.style.display !== 'block') {
+                            el.style.display = 'block';
+                            el.innerHTML = 'Redirect did not start. <a href="/">Continue to app</a> or <a href="/auth/login">try again</a>.';
+                        }
+                    }
+                }, 3000);
             </script>
         </body>
         </html>

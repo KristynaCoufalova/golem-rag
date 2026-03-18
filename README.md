@@ -51,12 +51,17 @@ uvicorn rag.web_app:app --reload --host 0.0.0.0 --port 8000
    ```
 2. **Custom domain:** In Azure, add `golem.histruct.com` under your Web App → Custom domains and configure DNS as instructed.
 3. **Environment variables** (App Service → Configuration → Application settings) so login works at that URL:
-   - `AUTH_OIDC_CLIENT_URL` = `https://golem.histruct.com`
+   - `AUTH_OIDC_CLIENT_URL` = `https://golem.histruct.com` (or your app’s exact public URL, e.g. `https://golem-rag-web.azurewebsites.net`)
    - (Optional) `AUTH_OIDC_REDIRECT_PATH` = `/callback` if your OIDC provider expects `https://golem.histruct.com/callback`
+
+   **If you see “Invalid redirect_uri” or “unauthorized_client” from HiStruct:**  
+   The redirect URI (e.g. `https://your-app/callback`) must be **registered for your client** in HiStruct’s Identity Server (idd.histruct.com). Set `AUTH_OIDC_CLIENT_URL` to the exact URL users use to open the app (no trailing slash). The app logs `OIDC Login: Using redirect_uri=...` at login—use that value when registering the redirect URI in HiStruct.
 
 The app will start even if `data/` or vector DBs are missing (fallback mode with placeholder content).
 
 **FemCAD / HiStruct sign-in not working?** The app must listen on `0.0.0.0` (all interfaces) so OIDC callbacks from HiStruct can reach it. If the Azure startup command is `uvicorn ...` without `--host 0.0.0.0`, the app may bind only to `127.0.0.1` and sign-in will fail. Use **Startup Command** = `python run_web.py` (or `startup.sh`); see `run_web.py` and `startup.sh`.
+
+**Deploy taking 30+ minutes?** The workflow now ships pre-built dependencies. In Azure App Service → Configuration → Application settings, set **`SCM_DO_BUILD_DURING_DEPLOYMENT`** = `false` and **`PYTHONPATH`** = `.python_packages/lib/site-packages` so Azure skips the slow Oryx build and uses the artifact (deploys should be ~3 minutes).
 
 ## Layout
 
