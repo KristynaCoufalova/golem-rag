@@ -39,6 +39,10 @@ azure-identity>=1.17.0
 jose>=1.0.0
 python-jose[cryptography]>=3.3.0
 
+# Telemetry (pin to override Azure App Service bundled version)
+opentelemetry-sdk>=1.15.0
+opentelemetry-api>=1.15.0
+
 # Dev
 pytest>=7.4.0
 black>=23.0.0

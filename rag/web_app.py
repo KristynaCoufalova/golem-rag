@@ -15,6 +15,14 @@ Run with:
 from __future__ import annotations
 
 import os
+import sys
+
+# Fix Azure App Service bundled opentelemetry shadowing pip-installed version.
+# The bundled version at /agents/python/common/ is outdated and missing ReadableLogRecord.
+_azure_agent_paths = [p for p in sys.path if '/agents/python/common' in p]
+for _p in _azure_agent_paths:
+    sys.path.remove(_p)
+    sys.path.append(_p)  # Move to end so pip-installed packages take precedence
 
 # CRITICAL: Set these BEFORE any PyTorch/transformers imports to avoid macOS mutex issues
 # These must be set at module import time, not just in the function
