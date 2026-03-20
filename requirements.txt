@@ -24,6 +24,7 @@ torch>=2.0.0
 
 # Server & API
 fastapi>=0.104.0
+python-multipart>=0.0.6
 uvicorn[standard]>=0.24.0
 python-dotenv>=1.0.0
 httpx>=0.25.0

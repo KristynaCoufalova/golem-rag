@@ -19,10 +19,18 @@ import sys
 
 # Fix Azure App Service bundled opentelemetry shadowing pip-installed version.
 # The bundled version at /agents/python/common/ is outdated and missing ReadableLogRecord.
+# Remove these paths entirely and purge any already-loaded opentelemetry modules so
+# Python re-imports from the pip-installed (up-to-date) package.
 _azure_agent_paths = [p for p in sys.path if '/agents/python/common' in p]
 for _p in _azure_agent_paths:
     sys.path.remove(_p)
-    sys.path.append(_p)  # Move to end so pip-installed packages take precedence
+# Purge cached opentelemetry modules so they reload from the correct location
+_otel_mods = [k for k in sys.modules if k.startswith('opentelemetry')]
+for _m in _otel_mods:
+    del sys.modules[_m]
+# Re-add Azure paths at the very end (needed for other Azure agent functionality)
+for _p in _azure_agent_paths:
+    sys.path.append(_p)
 
 # CRITICAL: Set these BEFORE any PyTorch/transformers imports to avoid macOS mutex issues
 # These must be set at module import time, not just in the function
@@ -47,7 +55,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
+from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -850,8 +858,9 @@ async def oidc_login(request: Request):
     # Store state in session (for production, use proper session storage)
     # For now, we'll include it in the callback URL
     
-    # Get response_mode - HiStruct may require "fragment" instead of "query"
-    response_mode = os.getenv("AUTH_OIDC_RESPONSE_MODE", "fragment")
+    # Get response_mode - form_post is most reliable (server receives token directly,
+    # avoids CSP issues with inline JS on callback page that plague fragment mode).
+    response_mode = os.getenv("AUTH_OIDC_RESPONSE_MODE", "form_post")
     
     # Build authorization URL
     auth_params = {
@@ -936,220 +945,37 @@ async def oidc_callback(
         return HTMLResponse(content=html, status_code=400)
     
     if not id_token:
-        # Check if we're using fragment mode (token in URL fragment, not query params)
-        # Fragment is only available client-side, so we need JavaScript to extract it
+        # No token in query params — might be fragment mode (token in URL hash).
+        # Redirect to the main page preserving the hash so index.html's
+        # extractTokenFromHash() can save it.  The <script> handles this;
+        # if JS is blocked (CSP), the <noscript>/<meta> fallback still
+        # sends the user home with a manual-login prompt.
         html = """
         <html>
         <head>
             <title>Authenticating...</title>
-            <style>
-                body {
-                    font-family: system-ui, sans-serif;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    min-height: 100vh;
-                    margin: 0;
-                    background: linear-gradient(120deg, #e6e9ff 0%, #f8f9ff 100%);
-                }
-                .container {
-                    text-align: center;
-                    padding: 40px;
-                    background: white;
-                    border-radius: 16px;
-                    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
-                }
-                .spinner {
-                    border: 4px solid #f3f3f3;
-                    border-top: 4px solid #6c63ff;
-                    border-radius: 50%;
-                    width: 40px;
-                    height: 40px;
-                    animation: spin 1s linear infinite;
-                    margin: 20px auto;
-                }
-                @keyframes spin {
-                    0% { transform: rotate(0deg); }
-                    100% { transform: rotate(360deg); }
-                }
-                .error {
-                    background: #fee;
-                    border: 2px solid #fcc;
-                    padding: 20px;
-                    border-radius: 8px;
-                    margin-top: 20px;
-                }
-            </style>
+            <noscript><meta http-equiv="refresh" content="0;url=/"></noscript>
         </head>
         <body>
-            <div class="container">
-                <h1>Processing authentication...</h1>
-                <div class="spinner"></div>
-                <p>Extracting token from URL...</p>
-                <div id="error" class="error" style="display: none;"></div>
-            </div>
+            <p>Redirecting&hellip;</p>
             <script>
-                // Extract token from URL fragment (fragment mode) or query params (query mode)
-                function showError(msg) {
-                    var el = document.getElementById('error');
-                    if (el) { el.style.display = 'block'; el.innerHTML = msg; }
-                }
-                function redirectToApp() {
-                    window.location.replace('/');
-                }
-                function getTokenFromUrl() {
-                    try {
-                        const hash = window.location.hash.substring(1);
-                        const query = window.location.search.substring(1);
-                        
-                        // Try fragment first (fragment mode)
-                        if (hash) {
-                            let token = null, error = null;
-                            try {
-                                const params = new URLSearchParams(hash);
-                                token = params.get('id_token');
-                                error = params.get('error');
-                            } catch (parseErr) {
-                                token = null; error = null;
-                            }
-                            if (!token && hash) {
-                                var m = hash.match(/id_token=([^&]+)/);
-                                if (m) token = m[1]; // keep token as-is (base64url)
-                                var e = hash.match(/error=([^&]+)/);
-                                if (e) error = decodeURIComponent(e[1].replace(/\+/g, ' '));
-                            }
-                            
-                            if (error) {
-                                showError('<strong>Error:</strong> ' + error + '<br><a href="/">Return to app</a>');
-                                return;
-                            }
-                            
-                            if (token) {
-                                try {
-                                    localStorage.setItem('histruct_id_token', token);
-                                    localStorage.setItem('histruct_token_timestamp', Date.now().toString());
-                                } catch (e) {
-                                    showError('Could not save token: ' + e.message + '<br><a href="/">Continue to app</a>');
-                                    return;
-                                }
-                                redirectToApp();
-                                return;
-                            }
-                        }
-                        
-                        // Try query params (query mode)
-                        if (query) {
-                            const params = new URLSearchParams(query);
-                            const token = params.get('id_token');
-                            const error = params.get('error');
-                            
-                            if (error) {
-                                showError('<strong>Error:</strong> ' + error + '<br><a href="/">Return to app</a>');
-                                return;
-                            }
-                            
-                            if (token) {
-                                try {
-                                    localStorage.setItem('histruct_id_token', token);
-                                    localStorage.setItem('histruct_token_timestamp', Date.now().toString());
-                                } catch (e) {
-                                    showError('Could not save token: ' + e.message + '<br><a href="/">Continue to app</a>');
-                                    return;
-                                }
-                                redirectToApp();
-                                return;
-                            }
-                        }
-                        
-                        // No token found
-                        showError('<strong>No token received</strong><br>Check the URL in your browser\'s address bar.<br><a href="/">Return to app</a>');
-                    } catch (e) {
-                        showError('Unexpected error: ' + e.message + '<br><a href="/">Continue to app</a>');
-                    }
-                }
-                
-                getTokenFromUrl();
-                // If redirect did not happen within 3s, show a manual link so user is never stuck
-                setTimeout(function() {
-                    if (window.location.pathname.indexOf('callback') !== -1) {
-                        var el = document.getElementById('error');
-                        if (el && el.style.display !== 'block') {
-                            el.style.display = 'block';
-                            el.innerHTML = 'Redirect did not start. <a href="/">Continue to app</a> or <a href="/auth/login">try again</a>.';
-                        }
-                    }
-                }, 3000);
+                // Redirect to main page WITH the hash intact so the main
+                // page's extractTokenFromHash() can save the token.
+                window.location.replace('/' + window.location.hash);
             </script>
+            <noscript><p>If not redirected, <a href="/">click here</a>.</p></noscript>
         </body>
         </html>
         """
         return HTMLResponse(content=html)
     
-    # Store token in localStorage and redirect to app
-    html = f"""
-    <html>
-    <head>
-        <title>Authenticating...</title>
-        <style>
-            body {{
-                font-family: system-ui, sans-serif;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                min-height: 100vh;
-                margin: 0;
-                background: linear-gradient(120deg, #e6e9ff 0%, #f8f9ff 100%);
-            }}
-            .container {{
-                text-align: center;
-                padding: 40px;
-                background: white;
-                border-radius: 16px;
-                box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
-            }}
-            .spinner {{
-                border: 4px solid #f3f3f3;
-                border-top: 4px solid #6c63ff;
-                border-radius: 50%;
-                width: 40px;
-                height: 40px;
-                animation: spin 1s linear infinite;
-                margin: 20px auto;
-            }}
-            @keyframes spin {{
-                0% {{ transform: rotate(0deg); }}
-                100% {{ transform: rotate(360deg); }}
-            }}
-            h1 {{
-                color: #6c63ff;
-                margin: 0 0 10px;
-            }}
-            p {{
-                color: #666;
-                margin: 0;
-            }}
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <h1>✅ Authentication Successful!</h1>
-            <div class="spinner"></div>
-            <p>Redirecting to app...</p>
-        </div>
-        <script>
-            // Store token in localStorage
-            localStorage.setItem('histruct_id_token', '{id_token}');
-            localStorage.setItem('histruct_token_timestamp', Date.now().toString());
-            
-            // Redirect to main app after a short delay
-            setTimeout(function() {{
-                window.location.href = '/';
-            }}, 1000);
-        </script>
-    </body>
-    </html>
-    """
-    return HTMLResponse(content=html)
+    # Token received (from query param or form_post).
+    # Redirect to the main page with the token in the URL hash so that
+    # index.html's extractTokenFromHash() stores it in localStorage.
+    # This avoids relying on inline JS here (which CSP can block).
+    from urllib.parse import quote
+    redirect_url = f"/#id_token={quote(id_token, safe='')}"
+    return RedirectResponse(url=redirect_url, status_code=303)
 
 
 @app.get("/callback")
@@ -1163,6 +989,28 @@ async def oidc_callback_alt(
     Alternative OIDC callback endpoint at /callback (common redirect URI pattern).
     This is a convenience endpoint that delegates to the main callback handler.
     """
+    return await oidc_callback(request=request, id_token=id_token, error=error, state=state)
+
+
+@app.post("/auth/callback")
+async def oidc_callback_post(
+    request: Request,
+    id_token: Optional[str] = Form(None),
+    error: Optional[str] = Form(None),
+    state: Optional[str] = Form(None),
+):
+    """OIDC callback for response_mode=form_post (token arrives as POST form field)."""
+    return await oidc_callback(request=request, id_token=id_token, error=error, state=state)
+
+
+@app.post("/callback")
+async def oidc_callback_alt_post(
+    request: Request,
+    id_token: Optional[str] = Form(None),
+    error: Optional[str] = Form(None),
+    state: Optional[str] = Form(None),
+):
+    """Alternative OIDC callback POST endpoint at /callback for form_post mode."""
     return await oidc_callback(request=request, id_token=id_token, error=error, state=state)
 
 
