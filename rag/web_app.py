@@ -17,6 +17,14 @@ from __future__ import annotations
 import os
 import sys
 
+# Fix SQLite version for ChromaDB on systems with old sqlite3 (e.g. Azure App Service).
+# pysqlite3-binary bundles a modern SQLite; monkey-patch before chromadb is imported.
+try:
+    import pysqlite3
+    sys.modules["sqlite3"] = pysqlite3
+except ImportError:
+    pass
+
 # Fix Azure App Service bundled opentelemetry shadowing pip-installed version.
 # The bundled version at /agents/python/common/ is outdated and missing ReadableLogRecord.
 # Remove these paths entirely and purge any already-loaded opentelemetry modules so
