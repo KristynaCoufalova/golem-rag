@@ -1,0 +1,180 @@
+
+        <html>
+        <head>
+            <title>Authenticating...</title>
+            <style>
+                body {
+                    font-family: system-ui, sans-serif;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    min-height: 100vh;
+                    margin: 0;
+                    background: linear-gradient(120deg, #e6e9ff 0%, #f8f9ff 100%);
+                }
+                .container {
+                    text-align: center;
+                    padding: 40px;
+                    background: white;
+                    border-radius: 16px;
+                    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+                }
+                .spinner {
+                    border: 4px solid #f3f3f3;
+                    border-top: 4px solid #6c63ff;
+                    border-radius: 50%;
+                    width: 40px;
+                    height: 40px;
+                    animation: spin 1s linear infinite;
+                    margin: 20px auto;
+                }
+                @keyframes spin {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
+                }
+                .error {
+                    background: #fee;
+                    border: 2px solid #fcc;
+                    padding: 20px;
+                    border-radius: 8px;
+                    margin-top: 20px;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>Processing authentication...</h1>
+                <div class="spinner"></div>
+                <p>Extracting token from URL...</p>
+                <div id="error" class="error" style="display: none;"></div>
+            </div>
+            <script>
+                // Extract token from URL fragment (fragment mode) or query params (query mode)
+                function showError(msg) {
+                    var el = document.getElementById('error');
+                    if (el) { el.style.display = 'block'; el.innerHTML = msg; }
+                }
+                function decodeStateReturnTo(stateValue) {
+                    if (!stateValue) return null;
+                    try {
+                        var padded = stateValue + '='.repeat((4 - stateValue.length % 4) % 4);
+                        var jsonText = atob(padded.replace(/-/g, '+').replace(/_/g, '/'));
+                        var parsed = JSON.parse(jsonText);
+                        return parsed && typeof parsed.return_to === 'string' ? parsed.return_to : null;
+                    } catch (_e) {
+                        return null;
+                    }
+                }
+                function getSafeReturnUrl(candidate) {
+                    var fallback = 'http://localhost:5174/';
+                    if (!candidate) return fallback;
+                    try {
+                        var url = new URL(candidate, fallback);
+                        if (url.protocol !== 'http:' && url.protocol !== 'https:') return fallback;
+                        return url.toString();
+                    } catch (_e) {
+                        return fallback;
+                    }
+                }
+                function redirectToApp(targetUrl, token) {
+                    var url = getSafeReturnUrl(targetUrl);
+                    if (token) {
+                        window.location.replace(url + '#id_token=' + encodeURIComponent(token));
+                        return;
+                    }
+                    window.location.replace(url);
+                }
+                function getTokenFromUrl() {
+                    try {
+                        const hash = window.location.hash.substring(1);
+                        const query = window.location.search.substring(1);
+                        var targetFromState = null;
+                        
+                        // Try fragment first (fragment mode)
+                        if (hash) {
+                            let token = null, error = null;
+                            let state = null;
+                            try {
+                                const params = new URLSearchParams(hash);
+                                token = params.get('id_token');
+                                error = params.get('error');
+                                state = params.get('state');
+                            } catch (parseErr) {
+                                token = null; error = null; state = null;
+                            }
+                            if (!token && hash) {
+                                var m = hash.match(/id_token=([^&]+)/);
+                                if (m) token = m[1]; // keep token as-is (base64url)
+                                var e = hash.match(/error=([^&]+)/);
+                                if (e) error = decodeURIComponent(e[1].replace(/\+/g, ' '));
+                                var s = hash.match(/state=([^&]+)/);
+                                if (s) state = decodeURIComponent(s[1].replace(/\+/g, ' '));
+                            }
+                            targetFromState = decodeStateReturnTo(state);
+                            
+                            if (error) {
+                                showError('<strong>Error:</strong> ' + error + '<br><a href="/">Return to app</a>');
+                                return;
+                            }
+                            
+                            if (token) {
+                                try {
+                                    localStorage.setItem('histruct_id_token', token);
+                                    localStorage.setItem('histruct_token_timestamp', Date.now().toString());
+                                } catch (e) {
+                                    showError('Could not save token: ' + e.message + '<br><a href="/">Continue to app</a>');
+                                    return;
+                                }
+                                redirectToApp(targetFromState, token);
+                                return;
+                            }
+                        }
+                        
+                        // Try query params (query mode)
+                        if (query) {
+                            const params = new URLSearchParams(query);
+                            const token = params.get('id_token');
+                            const error = params.get('error');
+                            const state = params.get('state');
+                            targetFromState = decodeStateReturnTo(state);
+                            
+                            if (error) {
+                                showError('<strong>Error:</strong> ' + error + '<br><a href="/">Return to app</a>');
+                                return;
+                            }
+                            
+                            if (token) {
+                                try {
+                                    localStorage.setItem('histruct_id_token', token);
+                                    localStorage.setItem('histruct_token_timestamp', Date.now().toString());
+                                } catch (e) {
+                                    showError('Could not save token: ' + e.message + '<br><a href="/">Continue to app</a>');
+                                    return;
+                                }
+                                redirectToApp(targetFromState, token);
+                                return;
+                            }
+                        }
+                        
+                        // No token found
+                        showError('<strong>No token received</strong><br>Check the URL in your browser's address bar.<br><a href="/">Return to app</a>');
+                    } catch (e) {
+                        showError('Unexpected error: ' + e.message + '<br><a href="/">Continue to app</a>');
+                    }
+                }
+                
+                getTokenFromUrl();
+                // If redirect did not happen within 3s, show a manual link so user is never stuck
+                setTimeout(function() {
+                    if (window.location.pathname.indexOf('callback') !== -1) {
+                        var el = document.getElementById('error');
+                        if (el && el.style.display !== 'block') {
+                            el.style.display = 'block';
+                            el.innerHTML = 'Redirect did not start. <a href="/">Continue to app</a> or <a href="/auth/login">try again</a>.';
+                        }
+                    }
+                }, 3000);
+            </script>
+        </body>
+        </html>
+        

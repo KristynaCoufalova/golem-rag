@@ -30,6 +30,7 @@ vectordb_docs/
 
 # Logs
 *.log
+workspaces/
 
 # Test / secrets
 test_token.txt

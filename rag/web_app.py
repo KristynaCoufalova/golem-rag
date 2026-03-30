@@ -52,6 +52,7 @@ os.environ.setdefault("OMP_PROC_BIND", "false")
 os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
 
 import asyncio
+import base64
 import importlib
 import json
 import logging
@@ -61,6 +62,7 @@ import time
 import uuid
 from pathlib import Path
 from typing import Dict, List, Optional
+from urllib.parse import urlencode
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request, status
@@ -68,6 +70,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
+from .generate import router as generate_router  # noqa: E402
 
 # Import conversation memory with graceful fallback
 try:
@@ -202,6 +205,7 @@ DEFAULT_DOCS_DIR = PROJECT_ROOT / "data" / "documentation"
 ENHANCED_MODULE = "rag.chain_builder"
 
 # Load environment variables
+# Note: these are re-read on every uvicorn reload.
 # Try project root .env first, then backend/rag/.env
 _env_path = PROJECT_ROOT / ".env"
 _rag_env_path = Path(__file__).parent / ".env"
@@ -234,6 +238,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(generate_router)
 
 # Global state
 chain = None
@@ -350,7 +355,8 @@ async def load_chain() -> None:
     k_docs = int(os.getenv("FEMCAD_UI_K_DOCS", "0"))
     k_code = int(os.getenv("FEMCAD_UI_K_CODE", "3"))
     azure_deployment = os.getenv("FEMCAD_UI_DEPLOYMENT", "gpt-5-mini")
-    enhanced_requested = os.getenv("FEMCAD_UI_ENABLE_ENHANCED", "").strip().lower() not in {"", "0", "false", "no", "off"}
+    # Default to enhanced RAG unless explicitly disabled.
+    enhanced_requested = os.getenv("FEMCAD_UI_ENABLE_ENHANCED", "1").strip().lower() not in {"", "0", "false", "no", "off"}
 
     logger.info(f"Initializing FemCAD RAG (enhanced={enhanced_requested}, k_docs={k_docs}, k_code={k_code})")
 
@@ -816,11 +822,13 @@ async def query_femcad_stream(
 
 
 @app.get("/auth/login")
-async def oidc_login(request: Request):
+async def oidc_login(
+    request: Request,
+    return_to: Optional[str] = Query(None, description="Frontend URL to return to after auth"),
+):
     """
     Initiate OIDC login flow by redirecting to the OIDC provider.
     """
-    from urllib.parse import urlencode
     import secrets
     
     # Get OIDC configuration
@@ -836,20 +844,22 @@ async def oidc_login(request: Request):
         or "histruct-golem-localhost"
     )
     
-    # Get base URL for redirect
-    client_url = (
-        os.getenv("AUTH_OIDC_CLIENT_URL")
-        or os.getenv("OIDC_REDIRECT_URI")
-        or str(request.base_url)
-    ).rstrip("/")
-    
-    # Get redirect URI path - allow override via environment variable
-    # Common patterns: /auth/callback, /callback, /signin-oidc, or just empty (base URL)
+    # Redirect URI sent to OIDC provider MUST be one registered in the IdP client.
+    # Keep it on backend origin and use callback page to relay token to frontend.
+    backend_origin = str(request.base_url).rstrip("/")
     redirect_path = os.getenv("AUTH_OIDC_REDIRECT_PATH", "/callback")
     if redirect_path and not redirect_path.startswith("/"):
         redirect_path = f"/{redirect_path}"
-    
-    redirect_uri = f"{client_url}{redirect_path}" if redirect_path else client_url
+    redirect_uri = f"{backend_origin}{redirect_path}" if redirect_path else backend_origin
+
+    frontend_return_url = (
+        return_to
+        or request.query_params.get("redirect_uri")
+        or request.query_params.get("next")
+        or request.query_params.get("return_url")
+        or os.getenv("AUTH_OIDC_CLIENT_URL")
+        or "http://localhost:5174/"
+    )
     
     # Log the redirect URI being used for debugging
     logger.info(
@@ -859,8 +869,14 @@ async def oidc_login(request: Request):
         oidc_authority,
     )
     
-    # Generate state and nonce for security
-    state = secrets.token_urlsafe(32)
+    # Generate state and nonce for security.
+    # state packs CSRF token + frontend return URL so callback can relay token to UI.
+    state_payload = {
+        "csrf": secrets.token_urlsafe(16),
+        "return_to": frontend_return_url,
+    }
+    state_json = json.dumps(state_payload, separators=(",", ":")).encode("utf-8")
+    state = base64.urlsafe_b64encode(state_json).decode("ascii").rstrip("=")
     nonce = secrets.token_urlsafe(32)
     
     # Store state in session (for production, use proper session storage)
@@ -903,16 +919,12 @@ async def oidc_callback(
     from fastapi.responses import HTMLResponse
     
     if error:
-        # Get the redirect URI that was attempted for better error messages
-        client_url = (
-            os.getenv("AUTH_OIDC_CLIENT_URL")
-            or os.getenv("OIDC_REDIRECT_URI")
-            or str(request.base_url)
-        ).rstrip("/")
+        # Get backend redirect URI that was attempted for better error messages
+        backend_origin = str(request.base_url).rstrip("/")
         redirect_path = os.getenv("AUTH_OIDC_REDIRECT_PATH", "/callback")
         if redirect_path and not redirect_path.startswith("/"):
             redirect_path = f"/{redirect_path}"
-        attempted_redirect_uri = f"{client_url}{redirect_path}" if redirect_path else client_url
+        attempted_redirect_uri = f"{backend_origin}{redirect_path}" if redirect_path else backend_origin
         
         error_details = ""
         if error == "unauthorized_client" or "redirect_uri" in error.lower():
@@ -945,7 +957,7 @@ async def oidc_callback(
                 <h1>Authentication Error</h1>
                 <p><strong>Error:</strong> {error}</p>
                 {error_details}
-                <p><a href="/">Return to app</a> | <a href="/auth/login">Try again</a></p>
+                <p><a href="/">Return to backend</a> | <a href="/auth/login">Try again</a></p>
             </div>
         </body>
         </html>
@@ -966,10 +978,133 @@ async def oidc_callback(
         </head>
         <body>
             <p>Redirecting&hellip;</p>
+            <div id="error" style="display:none;"></div>
             <script>
-                // Redirect to main page WITH the hash intact so the main
-                // page's extractTokenFromHash() can save the token.
-                window.location.replace('/' + window.location.hash);
+                // Extract token from URL fragment (fragment mode) or query params (query mode)
+                function showError(msg) {
+                    var el = document.getElementById('error');
+                    if (el) { el.style.display = 'block'; el.innerHTML = msg; }
+                }
+                function decodeStateReturnTo(stateValue) {
+                    if (!stateValue) return null;
+                    try {
+                        var padded = stateValue + '='.repeat((4 - stateValue.length % 4) % 4);
+                        var jsonText = atob(padded.replace(/-/g, '+').replace(/_/g, '/'));
+                        var parsed = JSON.parse(jsonText);
+                        return parsed && typeof parsed.return_to === 'string' ? parsed.return_to : null;
+                    } catch (_e) {
+                        return null;
+                    }
+                }
+                function getSafeReturnUrl(candidate) {
+                    var fallback = 'http://localhost:5174/';
+                    if (!candidate) return fallback;
+                    try {
+                        var url = new URL(candidate, fallback);
+                        if (url.protocol !== 'http:' && url.protocol !== 'https:') return fallback;
+                        return url.toString();
+                    } catch (_e) {
+                        return fallback;
+                    }
+                }
+                function redirectToApp(targetUrl, token) {
+                    var url = getSafeReturnUrl(targetUrl);
+                    if (token) {
+                        window.location.replace(url + '#id_token=' + encodeURIComponent(token));
+                        return;
+                    }
+                    window.location.replace(url);
+                }
+                function getTokenFromUrl() {
+                    try {
+                        const hash = window.location.hash.substring(1);
+                        const query = window.location.search.substring(1);
+                        var targetFromState = null;
+                        
+                        // Try fragment first (fragment mode)
+                        if (hash) {
+                            let token = null, error = null;
+                            let state = null;
+                            try {
+                                const params = new URLSearchParams(hash);
+                                token = params.get('id_token');
+                                error = params.get('error');
+                                state = params.get('state');
+                            } catch (parseErr) {
+                                token = null; error = null; state = null;
+                            }
+                            if (!token && hash) {
+                                var m = hash.match(/id_token=([^&]+)/);
+                                if (m) token = m[1]; // keep token as-is (base64url)
+                                var e = hash.match(/error=([^&]+)/);
+                                if (e) error = decodeURIComponent(e[1].replace(/\\+/g, ' '));
+                                var s = hash.match(/state=([^&]+)/);
+                                if (s) state = decodeURIComponent(s[1].replace(/\\+/g, ' '));
+                            }
+                            targetFromState = decodeStateReturnTo(state);
+                            
+                            if (error) {
+                                showError('<strong>Error:</strong> ' + error + '<br><a href="/">Return to app</a>');
+                                return;
+                            }
+                            
+                            if (token) {
+                                try {
+                                    localStorage.setItem('histruct_id_token', token);
+                                    localStorage.setItem('histruct_token_timestamp', Date.now().toString());
+                                } catch (e) {
+                                    showError('Could not save token: ' + e.message + '<br><a href="/">Continue to app</a>');
+                                    return;
+                                }
+                                redirectToApp(targetFromState, token);
+                                return;
+                            }
+                        }
+                        
+                        // Try query params (query mode)
+                        if (query) {
+                            const params = new URLSearchParams(query);
+                            const token = params.get('id_token');
+                            const error = params.get('error');
+                            const state = params.get('state');
+                            targetFromState = decodeStateReturnTo(state);
+                            
+                            if (error) {
+                                showError('<strong>Error:</strong> ' + error + '<br><a href="/">Return to app</a>');
+                                return;
+                            }
+                            
+                            if (token) {
+                                try {
+                                    localStorage.setItem('histruct_id_token', token);
+                                    localStorage.setItem('histruct_token_timestamp', Date.now().toString());
+                                } catch (e) {
+                                    showError('Could not save token: ' + e.message + '<br><a href="/">Continue to app</a>');
+                                    return;
+                                }
+                                redirectToApp(targetFromState, token);
+                                return;
+                            }
+                        }
+                        
+                        // No token found
+                        showError("<strong>No token received</strong><br>Check the URL in your browser's address bar.<br><a href=\"/\">Return to app</a>");
+                    } catch (e) {
+                        showError('Unexpected error: ' + e.message + '<br><a href="/">Continue to app</a>');
+                    }
+                }
+                
+                getTokenFromUrl();
+                // If redirect did not happen within 3s, show a manual link so user is never stuck
+                setTimeout(function() {
+                    if (window.location.pathname.indexOf('callback') !== -1) {
+                        var el = document.getElementById('error');
+                        if (el && el.style.display !== 'block') {
+                            el.style.display = 'block';
+                            el.innerHTML = 'Redirect did not start. <a href="/">Continue to app</a> or <a href="/auth/login">try again</a>.';
+                        }
+                    }
+                }, 3000);
             </script>
             <noscript><p>If not redirected, <a href="/">click here</a>.</p></noscript>
         </body>
@@ -977,13 +1112,82 @@ async def oidc_callback(
         """
         return HTMLResponse(content=html)
     
-    # Token received (from query param or form_post).
-    # Redirect to the main page with the token in the URL hash so that
-    # index.html's extractTokenFromHash() stores it in localStorage.
-    # This avoids relying on inline JS here (which CSP can block).
-    from urllib.parse import quote
-    redirect_url = f"/#id_token={quote(id_token, safe='')}"
-    return RedirectResponse(url=redirect_url, status_code=303)
+    # Query mode token branch: store token and relay to frontend app.
+    html = f"""
+    <html>
+    <head>
+        <title>Authenticating...</title>
+        <style>
+            body {{
+                font-family: system-ui, sans-serif;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                min-height: 100vh;
+                margin: 0;
+                background: linear-gradient(120deg, #e6e9ff 0%, #f8f9ff 100%);
+            }}
+            .container {{
+                text-align: center;
+                padding: 40px;
+                background: white;
+                border-radius: 16px;
+                box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+            }}
+            .spinner {{
+                border: 4px solid #f3f3f3;
+                border-top: 4px solid #6c63ff;
+                border-radius: 50%;
+                width: 40px;
+                height: 40px;
+                animation: spin 1s linear infinite;
+                margin: 20px auto;
+            }}
+            @keyframes spin {{
+                0% {{ transform: rotate(0deg); }}
+                100% {{ transform: rotate(360deg); }}
+            }}
+            h1 {{
+                color: #6c63ff;
+                margin: 0 0 10px;
+            }}
+            p {{
+                color: #666;
+                margin: 0;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>✅ Authentication Successful!</h1>
+            <div class="spinner"></div>
+            <p>Redirecting to app...</p>
+        </div>
+        <script>
+            // Store token in localStorage
+            localStorage.setItem('histruct_id_token', '{id_token}');
+            localStorage.setItem('histruct_token_timestamp', Date.now().toString());
+            var target = 'http://localhost:5174/';
+            try {{
+                if ('{state or ""}') {{
+                    var padded = '{state or ""}' + '='.repeat((4 - ('{state or ""}'.length % 4)) % 4);
+                    var jsonText = atob(padded.replace(/-/g, '+').replace(/_/g, '/'));
+                    var parsed = JSON.parse(jsonText);
+                    if (parsed && typeof parsed.return_to === 'string') {{
+                        target = parsed.return_to;
+                    }}
+                }}
+            }} catch (_e) {{}}
+            
+            // Redirect to main app after a short delay
+            setTimeout(function() {{
+                window.location.href = target + '#id_token=' + encodeURIComponent('{id_token}');
+            }}, 1000);
+        </script>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html)
 
 
 @app.get("/callback")

@@ -4,7 +4,7 @@ Configuration constants and global caches for FemCAD RAG system.
 
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 # CRITICAL: Set these BEFORE any PyTorch/transformers imports to avoid macOS mutex issues
 # These must be set at module import time, not just in the function
@@ -18,7 +18,6 @@ os.environ.setdefault("OMP_PROC_BIND", "false")
 os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
 
 from langchain_chroma import Chroma
-from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_core.documents import Document
 from langchain_community.retrievers import BM25Retriever
 
@@ -40,7 +39,7 @@ BM25_CODE_CACHE_PATH = BM25_CACHE_DIR / "bm25_code.pkl"
 BM25_DOCS_CACHE_PATH = BM25_CACHE_DIR / "bm25_docs.pkl"
 
 # ===== GLOBAL CACHES (loaded once, reused across all queries) =====
-_embeddings_cache: Optional[HuggingFaceEmbeddings] = None
+_embeddings_cache: Optional[Any] = None
 _code_vectordb_cache: Optional[Chroma] = None
 _docs_vectordb_cache: Optional[Chroma] = None
 _bm25_code_cache: Optional[BM25Retriever] = None
@@ -51,12 +50,12 @@ _basics_doc_cache: Optional[Document] = None
 _last_formatted_context_tokens: int = 0
 
 
-def get_embeddings_cache() -> Optional[HuggingFaceEmbeddings]:
+def get_embeddings_cache() -> Optional[Any]:
     """Get the cached embeddings model."""
     return _embeddings_cache
 
 
-def set_embeddings_cache(value: Optional[HuggingFaceEmbeddings]):
+def set_embeddings_cache(value: Optional[Any]):
     """Set the cached embeddings model."""
     global _embeddings_cache
     _embeddings_cache = value
